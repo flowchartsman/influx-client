@@ -33,14 +33,18 @@ type BatchingClientConfig struct {
 	Interval time.Duration
 	// InfluxURL is the URL to the influx host. Required.
 	InfluxURL string
+	// Database is the influx database to use. Required.
+	Database string
 	// Logger is the logger to use. Default: nop
 	Logger Logger
 }
 
 // A BatchingClient batches influx data points and sends them off at a prescribed interval
 type BatchingClient struct {
+	// TODO: move most of this crap into an embedded config.
 	client    *client.Client
 	batchSize int // int for len() comparison
+	database  string
 	logger    Logger
 	stopper   sync.Once
 	stopChan  chan struct{}
@@ -50,6 +54,7 @@ type BatchingClient struct {
 
 // NewBatchingClient creates a BatchingClient for influxDB
 func NewBatchingClient(config BatchingClientConfig) (*BatchingClient, error) {
+	// TODO: error check
 	if config.BatchSize == 0 {
 		config.BatchSize = 20
 	}
@@ -76,6 +81,7 @@ func NewBatchingClient(config BatchingClientConfig) (*BatchingClient, error) {
 	bc := &BatchingClient{
 		client:    influxClient,
 		batchSize: int(config.BatchSize),
+		database:  config.Database,
 		logger:    config.Logger,
 		stopChan:  make(chan struct{}),
 		pointChan: make(chan client.Point),
@@ -105,6 +111,7 @@ func (bc *BatchingClient) eventLoop() {
 		if (flush || stop || len(buf) >= bc.batchSize) && len(buf) > 0 {
 			var bp client.BatchPoints
 			bp.Points = buf
+			bp.Database = bc.database
 			_, err := bc.client.Write(bp) // don't care about response for now
 			// if there's an error, log it, but do not clear the buffer
 			if err != nil {
