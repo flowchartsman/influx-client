@@ -95,59 +95,71 @@ func Marshal(v interface{}, measurement string) (influx.Point, error) {
 	p.Time = time.Now()
 	p.Measurement = measurement
 
-	// TODO: Rename
-	vType := val.Type()
+	vals := []reflect.Value{val}
 
-	for i := 0; i < val.NumField(); i++ {
-		f := val.Field(i)
-		structField := vType.Field(i)
+	for i := 0; i < len(vals); i++ {
+		val := vals[i]
+		// TODO: Rename
+		vType := val.Type()
 
-		if structField.PkgPath != "" {
-			continue
-		}
-		opts := getOpts(structField)
-		if opts == nil {
-			continue
-		}
-		if f.Kind() == reflect.Ptr {
-			if f.IsNil() {
-				// XXX: Error here? Maybe if omitzero not specified?
+		for i := 0; i < val.NumField(); i++ {
+			f := val.Field(i)
+			structField := vType.Field(i)
+
+			if structField.PkgPath != "" {
 				continue
 			}
-			f = f.Elem()
-		}
+			opts := getOpts(structField)
+			if opts == nil {
+				continue
+			}
+			if f.Kind() == reflect.Ptr {
+				if f.IsNil() {
+					// XXX: Error here? Maybe if omitzero not specified?
+					continue
+				}
+				f = f.Elem()
+			}
 
-		val := f.Interface()
+			val := f.Interface()
 
-		// find out if the type implements InfluxValuer or fmt.Stringer
-		switch v := val.(type) {
-		case InfluxValuer:
-			val = v.InfluxValue()
-		case fmt.Stringer:
-			val = v.String()
-		}
+			// find out if the type implements InfluxValuer or fmt.Stringer
+			switch v := val.(type) {
+			case InfluxValuer:
+				val = v.InfluxValue()
+			case fmt.Stringer:
+				val = v.String()
+			}
 
-		// get new reflect.Value
-		// XXX: or move ValueOf call to isZero and similarly for a influx type checking func
-		vv := reflect.ValueOf(val)
-		if opts.omitzero && isZero(vv) {
-			continue
-		}
+			// If it's an embeeded struct, parse it at the end along with anything embedded at its level
+			if f.Kind() == reflect.Struct && structField.Anonymous {
+				vals = append(vals, f)
+				continue
+			}
 
-		// Ensure this is a type Influx can handle
-		switch vv.Kind() {
-		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Float32, reflect.Float64, reflect.String, reflect.Bool:
-			// we're good
-		default:
-			return p, fmt.Errorf("Unsupported type for member %s", structField.Name)
-		}
+			// get new reflect.Value
+			// XXX: or move ValueOf call to isZero and similarly for a influx type checking func
+			vv := reflect.ValueOf(val)
+			if opts.omitzero && isZero(vv) {
+				continue
+			}
 
-		if opts.tag {
-			p.Tags[opts.name] = fmt.Sprint(val)
-		} else {
-			p.Fields[opts.name] = val
+			// Ensure this is a type Influx can handle
+			switch vv.Kind() {
+			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Float32, reflect.Float64, reflect.String, reflect.Bool:
+				// we're good
+			default:
+				return p, fmt.Errorf("Unsupported type for member %s", structField.Name)
+			}
+
+			if opts.tag {
+				p.Tags[opts.name] = fmt.Sprint(val)
+			} else {
+				p.Fields[opts.name] = val
+			}
 		}
 	}
+
 	return p, nil
 }
 
