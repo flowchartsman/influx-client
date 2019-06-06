@@ -109,7 +109,10 @@ func Marshal(v interface{}, measurement string) (influx.Point, error) {
 			if structField.PkgPath != "" {
 				continue
 			}
-			opts := getOpts(structField)
+			opts, err := getOpts(structField)
+			if err != nil {
+				return p, err
+			}
 			if opts == nil {
 				continue
 			}
@@ -169,13 +172,13 @@ type fieldOptions struct {
 	tag      bool
 }
 
-func getOpts(f reflect.StructField) *fieldOptions {
+func getOpts(f reflect.StructField) (*fieldOptions, error) {
 	o := &fieldOptions{
 		name: f.Name,
 	}
 	val, ok := f.Tag.Lookup("influx")
 	if val == "-" {
-		return nil
+		return nil, nil
 	}
 	if ok {
 		opts := strings.Split(val, ",")
@@ -196,13 +199,16 @@ func getOpts(f reflect.StructField) *fieldOptions {
 					case "tag":
 						o.tag = true
 					default:
-						// TODO?: error reporting here?
+						if opt[0] == ' ' {
+							return nil, fmt.Errorf("unknown tag value %q, suspicious leading space")
+						}
+						return nil, fmt.Errorf("unknown tag value %q")
 					}
 				}
 			}
 		}
 	}
-	return o
+	return o, nil
 }
 
 // Until https://go-review.googlesource.com/c/go/+/171337/ lands...
