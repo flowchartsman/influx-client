@@ -142,10 +142,32 @@ func (bc *BatchingClient) Send(v interface{}, measurement string) error {
 	return nil
 }
 
+// SendRaw sends a raw influx point to the influx server
+func (bc *BatchingClient) SendRaw(rp RawPoint, measurement string) error {
+	if len(rp.Fields) == 0 {
+		return errors.New("cannot send a point with empty fields")
+	}
+	var p client.Point
+
+	p.Tags = rp.Tags
+	p.Fields = rp.Fields
+	p.Time = time.Now()
+	p.Measurement = measurement
+	bc.pointChan <- p
+
+	return nil
+}
+
 // Stop stops the client and flushes remaining datapoints
 func (bc *BatchingClient) Stop() {
 	bc.stopper.Do(func() {
 		close(bc.stopChan)
 		// wait?
 	})
+}
+
+// RawPoint is a raw influx point to be batched and sent directly to the database
+type RawPoint struct {
+	Tags   map[string]string
+	Fields map[string]interface{}
 }
